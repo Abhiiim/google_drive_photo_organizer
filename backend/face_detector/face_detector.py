@@ -27,10 +27,11 @@ class FaceDetector:
         self.min_face_size = min_face_size
         self.quality_threshold = quality_threshold
         
-        # Initialize the model once for efficiency
+        # Initialize the model - don't prepare yet, will do adaptively per image
         try:
             self.app = FaceAnalysis(name="buffalo_l", providers=['CPUExecutionProvider'])
-            self.app.prepare(ctx_id=0, det_size=(640, 640))
+            self.app.prepare(ctx_id=0, det_size=(640, 640))  # Default size
+            self.current_det_size = (640, 640)
             print("✅ InsightFace model initialized successfully")
         except Exception as e:
             print(f"❌ Error initializing InsightFace model: {e}")
@@ -39,6 +40,7 @@ class FaceDetector:
     def detect_and_extract_faces(self, image_path):
         """
         Extract all high-quality faces from an image and generate individual embeddings
+        Uses adaptive detection size based on image resolution for better group photo handling
         
         Returns:
             Tuple of (faces, embeddings) where embeddings correspond to individual faces
@@ -54,7 +56,26 @@ class FaceDetector:
             if img is None:
                 print(f"❌ Could not load image: {image_path}")
                 return [], []
-                
+            
+            height, width = img.shape[:2]
+            print(f"Image resolution: {width}x{height}")
+            
+            # Adaptive detection size based on image resolution
+            # Larger images (likely group photos) need larger detection size
+            max_dim = max(width, height)
+            if max_dim > 2000:
+                det_size = (1024, 1024)  # High-res images
+            elif max_dim > 1200:
+                det_size = (896, 896)    # Medium-high res
+            else:
+                det_size = (640, 640)    # Standard res
+            
+            # Re-initialize if detection size changed
+            if det_size != self.current_det_size:
+                print(f"📐 Adjusting detection size to {det_size[0]}x{det_size[1]} for better accuracy")
+                self.app.prepare(ctx_id=0, det_size=det_size)
+                self.current_det_size = det_size
+            
             # Convert to RGB
             img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
             
@@ -80,9 +101,9 @@ class FaceDetector:
                 quality_score = getattr(face, 'det_score', 0.5)
                 
                 # Filter based on size and quality
-                # if face_size < self.min_face_size:
-                #     print(f"  ⚠️  Face {idx+1} too small ({face_size}px), skipping")
-                #     continue
+                if face_size < self.min_face_size:
+                    print(f"  ⚠️  Face {idx+1} too small ({face_size}px), skipping")
+                    continue
                     
                 if quality_score < self.quality_threshold:
                     print(f"  ⚠️  Face {idx+1} low quality ({quality_score:.3f}), skipping")
