@@ -1,34 +1,37 @@
-from fastapi import FastAPI, HTTPException, BackgroundTasks
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
-from pydantic import BaseModel, Field
-import asyncio
-from typing import Dict, Any, List, Optional
-import uuid
-import json
-import os
 
+from core.config import get_settings
+from core.logger import get_logger, setup_logging
+from database import get_db, init_db
+from middleware import RequestLoggingMiddleware
 from routers.organizer_router import organizer_router
-from database import init_db, get_db, Person, PhotoFace
+
+
+setup_logging()
+
+settings = get_settings()
+logger = get_logger(__name__)
 
 app = FastAPI(
-    title="Improved Google Drive Face Organizer",
+    title=settings.project_name,
     description="Advanced face detection and organization with manual review capabilities",
-    version="2.0.0"
+    version=settings.version,
 )
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=settings.cors_allow_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.add_middleware(RequestLoggingMiddleware)
 
 @app.on_event("startup")
 async def startup_event():
     init_db()
-    print("🚀 Improved Google Drive Face Organizer API started")
+    logger.info("application.startup", message="Improved Google Drive Face Organizer API started")
 
 app.include_router(organizer_router)
 
@@ -42,7 +45,7 @@ async def health_check():
         
         return {
             "status": "healthy",
-            "version": "2.0.0",
+            "version": settings.version,
             "features": [
                 "Enhanced face detection with face_recognition library",
                 "Advanced clustering with verification",
@@ -52,6 +55,7 @@ async def health_check():
             ]
         }
     except Exception as e:
+        logger.exception("health_check.failed", error=str(e))
         return {"status": "unhealthy", "error": str(e)}
 
 

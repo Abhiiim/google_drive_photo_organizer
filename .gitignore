@@ -1,0 +1,15 @@
+__pycache__/
+*.pyc
+
+# Environment files
+.env
+.env.*
+backend/.env
+backend/.env.*
+
+# Local artifacts
+token.pickle
+tmp/
+logs/
+*/logs/
+

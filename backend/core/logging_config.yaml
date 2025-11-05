@@ -1,0 +1,60 @@
+# Default logging configuration applied when YAML loading is enabled.
+# Runtime values (log level, file paths) are injected in code from settings.
+
+version: 1
+disable_existing_loggers: False
+
+formatters:
+  json:
+    "()": structlog.stdlib.ProcessorFormatter
+    processors:
+      - name: structlog.stdlib.ProcessorFormatter.remove_processors_meta
+        kwargs: {}
+      - name: structlog.processors.TimeStamper
+        kwargs:
+          fmt: iso
+      - name: structlog.processors.JSONRenderer
+        kwargs: {}
+
+handlers:
+  console:
+    class: logging.StreamHandler
+    formatter: json
+    level: INFO
+    stream: ext://sys.stdout
+  app_file:
+    class: logging.handlers.TimedRotatingFileHandler
+    formatter: json
+    level: INFO
+    filename: app.log
+    when: midnight
+    backupCount: 14
+    encoding: utf-8
+  error_file:
+    class: logging.handlers.TimedRotatingFileHandler
+    formatter: json
+    level: ERROR
+    filename: error.log
+    when: midnight
+    backupCount: 14
+    encoding: utf-8
+  access_file:
+    class: logging.handlers.TimedRotatingFileHandler
+    formatter: json
+    level: INFO
+    filename: access.log
+    when: midnight
+    backupCount: 14
+    encoding: utf-8
+
+loggers:
+  access:
+    level: INFO
+    handlers: [access_file]
+    propagate: false
+
+root:
+  level: INFO
+  handlers: [console, app_file, error_file]
+
+

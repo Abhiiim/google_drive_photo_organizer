@@ -2,8 +2,8 @@ import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import './App.css';
 
-const API_BASE = process.env.NODE_ENV === 'production' 
-  ? 'https://your-api-domain.com' 
+const API_BASE = process.env.NODE_ENV === 'production'
+  ? 'https://your-api-domain.com'
   : 'http://localhost:8000';
 
 function App() {
@@ -44,7 +44,7 @@ function App() {
       const response = await axios.post(`${API_BASE}/api/organize`, {
         drive_folder_link: folderLink
       });
-      
+
       setCurrentJobId(response.data.job_id);
     } catch (err) {
       setError(err.response?.data?.detail || 'Failed to start organization');
@@ -58,7 +58,7 @@ function App() {
     try {
       const response = await axios.get(`${API_BASE}/api/status/${currentJobId}`);
       const statusData = response.data;
-      
+
       setStatus(statusData);
 
       if (statusData.status === 'completed') {
@@ -103,7 +103,7 @@ function App() {
               placeholder="https://drive.google.com/drive/folders/your-folder-id"
               disabled={isProcessing}
             />
-            <button 
+            <button
               onClick={startOrganization}
               disabled={isProcessing || !folderLink.trim()}
               className="primary-button"
@@ -117,8 +117,8 @@ function App() {
           <div className="status-section">
             <h3>Processing Status</h3>
             <div className="progress-bar">
-              <div 
-                className="progress-fill" 
+              <div
+                className="progress-fill"
                 style={{ width: `${getProgressPercentage()}%` }}
               ></div>
             </div>
@@ -126,8 +126,18 @@ function App() {
             <div className="stats">
               <span>Photos: {status.total_photos || 0}</span>
               <span>Processed: {status.processed || 0}</span>
-              <span>Persons Found: {status.persons_found || 0}</span>
+              <span>Faces: {status.faces_detected || 0}</span>
+              <span>Persons: {status.persons_found || 0}</span>
             </div>
+            {status.multi_face_summary && (
+              <div className="multi-face-stats">
+                <small>
+                  Single: {status.multi_face_summary.single_face_photos || 0} |
+                  Multi: {status.multi_face_summary.multi_face_photos || 0} |
+                  No Face: {status.multi_face_summary.no_face_photos || 0}
+                </small>
+              </div>
+            )}
           </div>
         )}
 
@@ -145,10 +155,29 @@ function App() {
                 <span>Persons Found</span>
               </div>
               <div className="stat-item">
-                <strong>{status.folders_created}</strong>
-                <span>Folders Created</span>
+                <strong>{status.faces_detected}</strong>
+                <span>Faces Detected</span>
               </div>
             </div>
+            {status.multi_face_summary && (
+              <div className="detailed-stats">
+                <h4>Photo Breakdown:</h4>
+                <div className="breakdown-stats">
+                  <div className="breakdown-item">
+                    <strong>{status.multi_face_summary.single_face_photos}</strong>
+                    <span>Single Face Photos</span>
+                  </div>
+                  <div className="breakdown-item">
+                    <strong>{status.multi_face_summary.multi_face_photos}</strong>
+                    <span>Multi Face Photos</span>
+                  </div>
+                  <div className="breakdown-item">
+                    <strong>{status.multi_face_summary.no_face_photos}</strong>
+                    <span>No Face Photos</span>
+                  </div>
+                </div>
+              </div>
+            )}
             <button onClick={resetForm} className="secondary-button">
               Organize Another Folder
             </button>

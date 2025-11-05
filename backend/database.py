@@ -1,11 +1,29 @@
-from sqlalchemy import create_engine, Column, Integer, String, Boolean, Text
+from sqlalchemy import Column, Integer, String, Boolean, Text, create_engine
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
-import os
 
-DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://akeshibh:password@localhost/face_organizer")
+from core.config import get_settings
 
-engine = create_engine(DATABASE_URL)
+
+settings = get_settings()
+
+engine_kwargs = {"pool_pre_ping": True}
+
+if settings.database_url.startswith("sqlite"):  # pragma: no cover - sqlite dev convenience
+    engine = create_engine(
+        settings.database_url,
+        connect_args={"check_same_thread": False},
+        **engine_kwargs,
+    )
+else:
+    engine = create_engine(
+        settings.database_url,
+        pool_size=settings.db_pool_size,
+        max_overflow=settings.db_max_overflow,
+        pool_timeout=settings.db_pool_timeout,
+        **engine_kwargs,
+    )
+
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 

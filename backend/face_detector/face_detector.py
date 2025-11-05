@@ -4,116 +4,167 @@ import numpy as np
 import cv2
 import tempfile
 import os
+from pathlib import Path
+
+from core.logger import get_logger
 
 
 class FaceDetector:
     """
     Optimized face detector using InsightFace for accurate detection and embedding extraction
     """
-    def __init__(self, tolerance=0.6, face_detection_model='hog', num_jitters=1, min_face_size=80, quality_threshold=0.3):
+    def __init__(self, min_face_size=50, quality_threshold=0.3):
         """
         Initialize face detector with parameters
         
         Args:
-            tolerance: Face recognition tolerance (kept for compatibility)
-            face_detection_model: Detection model (kept for compatibility) 
-            num_jitters: Number of jitters (kept for compatibility)
             min_face_size: Minimum face size in pixels for detection
             quality_threshold: Minimum face quality score (0-1, higher = better quality)
         """
-        self.tolerance = tolerance
-        self.face_detection_model = face_detection_model
-        self.num_jitters = num_jitters
         self.min_face_size = min_face_size
         self.quality_threshold = quality_threshold
-        
-        # Initialize the model once for efficiency
-        try:
-            self.app = FaceAnalysis(name="buffalo_l", providers=['CPUExecutionProvider'])
-            self.app.prepare(ctx_id=0, det_size=(640, 640))
-            print("✅ InsightFace model initialized successfully")
-        except Exception as e:
-            print(f"❌ Error initializing InsightFace model: {e}")
-            self.app = None
+        self.logger = get_logger(__name__)
 
     def detect_and_extract_faces(self, image_path):
         """
-        Extract all high-quality faces from an image and generate individual embeddings
+        Extract all faces from an image with improved multi-face detection
         
         Returns:
-            Tuple of (faces, embeddings) where embeddings correspond to individual faces
-            Each embedding dict contains: {'embedding': np.array, 'quality': float, 'bbox': tuple, 'age': int, 'gender': str}
+            Tuple of (faces, embeddings) where embeddings is a list of embedding dictionaries
         """
-        if self.app is None:
-            print("❌ InsightFace model not initialized")
-            return [], []
-            
         try:
-            # Validate image loading
-            img = cv2.imread(image_path)
-            if img is None:
-                print(f"❌ Could not load image: {image_path}")
-                return [], []
-                
-            # Convert to RGB
-            img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+            self.logger.debug(
+                "face_detector.process_image_start",
+                image_name=Path(image_path).name,
+            )
             
-            # Detect all faces
-            faces = self.app.get(img_rgb)
+            # Extract faces with embeddings - try multiple backends for better detection
+            faces = None
+            detector_backends = ['retinaface', 'mtcnn', 'opencv']
+            
+            for backend in detector_backends:
+                try:
+                    faces = DeepFace.extract_faces(
+                        img_path=str(image_path),
+                        detector_backend=backend,
+                        enforce_detection=False,
+                        align=True
+                    )
+                    if faces and len(faces) > 0:
+                        self.logger.info(
+                            "face_detector.backend_success",
+                            backend=backend,
+                            face_count=len(faces),
+                        )
+                        break
+                except Exception as backend_error:
+                    self.logger.warning(
+                        "face_detector.backend_failed",
+                        backend=backend,
+                        error=str(backend_error),
+                    )
+                    continue
             
             if not faces:
-                print(f"No faces detected in {image_path}")
+                self.logger.info("face_detector.no_faces_detected", image_name=Path(image_path).name)
+                return [], []
+
+            # Validate faces
+            valid_faces = self.extract_valid_faces(faces, min_confidence=self.quality_threshold, min_face_size=self.min_face_size)
+            
+            if not valid_faces:
+                self.logger.info(
+                    "face_detector.no_valid_faces",
+                    image_name=Path(image_path).name,
+                )
                 return [], []
             
-            # Filter and process faces based on quality and size
-            high_quality_faces = []
+            # Generate embeddings for valid faces
             embeddings = []
-            
-            for idx, face in enumerate(faces):
-                # Calculate face size from bounding box
-                bbox = face.bbox.astype(int)
-                face_width = bbox[2] - bbox[0]
-                face_height = bbox[3] - bbox[1]
-                face_size = min(face_width, face_height)
-                
-                # Get face quality score (det_score from InsightFace)
-                quality_score = getattr(face, 'det_score', 0.5)
-                
-                # Filter based on size and quality
-                # if face_size < self.min_face_size:
-                #     print(f"  ⚠️  Face {idx+1} too small ({face_size}px), skipping")
-                #     continue
+            for i, face_data in enumerate(valid_faces):
+                try:
+                    # Generate embedding from the extracted face numpy array
+                    embedding_result = DeepFace.represent(
+                        img_path=face_data['face'],  # This is a numpy array
+                        model_name='Facenet512',
+                        detector_backend='skip',  # IMPORTANT: Skip detection since face is already extracted
+                        enforce_detection=False
+                    )
                     
-                if quality_score < self.quality_threshold:
-                    print(f"  ⚠️  Face {idx+1} low quality ({quality_score:.3f}), skipping")
+                    embeddings.append(embedding_result[0])
+                    self.logger.debug(
+                        "face_detector.embedding_generated",
+                        face_index=i + 1,
+                        image_name=Path(image_path).name,
+                    )
+                    
+                except Exception as embed_error:
+                    self.logger.warning(
+                        "face_detector.embedding_failed",
+                        face_index=i + 1,
+                        error=str(embed_error),
+                    )
                     continue
-                
-                # Extract normalized embedding
-                embedding = face.embedding
-                embedding_norm = embedding / np.linalg.norm(embedding)
-                
-                # Get additional face attributes
-                age = getattr(face, 'age', 0)
-                gender = 'M' if getattr(face, 'gender', 0) == 1 else 'F'
-                
-                # Store face data
-                high_quality_faces.append(face)
-                embeddings.append({
-                    "embedding": embedding_norm,  # Normalized embedding
-                    "quality": quality_score,
-                    "bbox": tuple(bbox),
-                    "face_size": face_size,
-                    "age": age,
-                    "gender": gender
-                })
-                
-                print(f"  ✅ Face {idx+1}: size={face_size}px, quality={quality_score:.3f}, age={age}, gender={gender}")
             
-            print(f"Detected {len(embeddings)} high-quality faces out of {len(faces)} total faces")
-            return high_quality_faces, embeddings
-
+            self.logger.info(
+                "face_detector.processing_complete",
+                image_name=Path(image_path).name,
+                embedding_count=len(embeddings),
+            )
+            return faces, embeddings
+        
         except Exception as e:
-            print(f"❌ Error in face detection: {e}")
-            import traceback
-            traceback.print_exc()
+            self.logger.exception(
+                "face_detector.processing_failed",
+                image_name=Path(image_path).name,
+                error=str(e),
+            )
             return [], []
+        
+    def extract_valid_faces(self, faces, min_confidence=0.3, min_face_size=50):
+        """
+        Extract faces with validation to reduce false positives
+        Note: Lowered thresholds to better detect faces in group photos
+        """
+        try:
+            valid_faces = []
+            for i, face in enumerate(faces):
+                # DeepFace.extract_faces doesn't always return confidence
+                # So we'll be more lenient and focus on face size
+                confidence = face.get('confidence', 1.0)  # Default to 1.0 if not available
+                facial_area = face.get('facial_area', {})
+                
+                # Calculate face size
+                width = facial_area.get('w', 0)
+                height = facial_area.get('h', 0)
+                face_size = min(width, height) if width > 0 and height > 0 else 100  # Default size if not available
+                
+                # More lenient validation for multi-face detection
+                if confidence >= min_confidence and face_size >= min_face_size:
+                    valid_faces.append(face)
+                    self.logger.debug(
+                        "face_detector.face_valid",
+                        face_index=i + 1,
+                        confidence=round(confidence, 3),
+                        face_size=face_size,
+                    )
+                else:
+                    self.logger.debug(
+                        "face_detector.face_rejected",
+                        face_index=i + 1,
+                        confidence=round(confidence, 3),
+                        face_size=face_size,
+                        min_confidence=min_confidence,
+                        min_face_size=min_face_size,
+                    )
+            
+            self.logger.info(
+                "face_detector.validation_summary",
+                accepted=len(valid_faces),
+                total=len(faces),
+            )
+            return valid_faces
+            
+        except Exception as e:
+            self.logger.exception("face_detector.validation_failed", error=str(e))
+            return []
