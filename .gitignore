@@ -13,3 +13,10 @@ tmp/
 logs/
 */logs/
 
+# IDE and development files
+.cursor/
+
+# Documentation and planning
+plan/
+AGENTS.md
+
