@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import base64
+import hashlib
 from functools import lru_cache
 from pathlib import Path
 from typing import List, Optional, Union
@@ -52,6 +54,12 @@ class Settings(BaseSettings):
     db_pool_size: int = Field(default=10, alias="DB_POOL_SIZE")
     db_max_overflow: int = Field(default=20, alias="DB_MAX_OVERFLOW")
     db_pool_timeout: int = Field(default=30, alias="DB_POOL_TIMEOUT")
+    slow_query_threshold: float = Field(
+        default=0.5,
+        alias="SLOW_QUERY_THRESHOLD",
+        ge=0.0,
+    )
+    encryption_key: Optional[str] = Field(default=None, alias="ENCRYPTION_KEY")
 
     # Google Drive
     google_client_id: Optional[str] = Field(default=None, alias="GOOGLE_CLIENT_ID")
@@ -97,10 +105,55 @@ class Settings(BaseSettings):
     )
 
     # Redis / caching (placeholders for future phases)
-    redis_url: Optional[str] = Field(default=None, alias="REDIS_URL")
+    redis_url: Optional[str] = Field(default="redis://localhost:6379/0", alias="REDIS_URL")
     redis_db: int = Field(default=0, alias="REDIS_DB", ge=0)
     redis_password: Optional[str] = Field(default=None, alias="REDIS_PASSWORD")
     cache_ttl: int = Field(default=3600, alias="CACHE_TTL", ge=0)
+
+    # Celery / task queue
+    celery_broker_url: Optional[str] = Field(
+        default=None,
+        alias="CELERY_BROKER_URL",
+    )
+    celery_result_backend: Optional[str] = Field(
+        default=None,
+        alias="CELERY_RESULT_BACKEND",
+    )
+    celery_task_default_queue: str = Field(
+        default="default",
+        alias="CELERY_TASK_DEFAULT_QUEUE",
+    )
+    celery_high_priority_queue: str = Field(
+        default="high_priority",
+        alias="CELERY_HIGH_PRIORITY_QUEUE",
+    )
+    celery_low_priority_queue: str = Field(
+        default="low_priority",
+        alias="CELERY_LOW_PRIORITY_QUEUE",
+    )
+    celery_maintenance_queue: str = Field(
+        default="maintenance",
+        alias="CELERY_MAINTENANCE_QUEUE",
+    )
+    celery_task_soft_time_limit: int = Field(
+        default=540,
+        alias="CELERY_TASK_SOFT_TIME_LIMIT",
+        ge=1,
+    )
+    celery_task_time_limit: int = Field(
+        default=600,
+        alias="CELERY_TASK_TIME_LIMIT",
+        ge=1,
+    )
+    celery_result_expires: int = Field(
+        default=86400,
+        alias="CELERY_RESULT_EXPIRES",
+        ge=0,
+    )
+    celery_task_track_started: bool = Field(
+        default=True,
+        alias="CELERY_TASK_TRACK_STARTED",
+    )
 
     @field_validator("google_scopes", "cors_allow_origins", mode="before")
     @classmethod
@@ -151,12 +204,30 @@ class Settings(BaseSettings):
             return None
         return value.expanduser().resolve()
 
+    @field_validator("celery_broker_url", "celery_result_backend", mode="after")
+    @classmethod
+    def default_celery_urls(
+        cls,
+        value: Optional[str],
+        info: ValidationInfo,
+    ) -> str:
+        """Ensure Celery broker and backend default to Redis configuration."""
+
+        if value:
+            return value
+
+        redis_url = info.data.get("redis_url") or "redis://localhost:6379/0"
+        return redis_url
+
 
 @lru_cache
 def get_settings() -> Settings:
     """Return cached application settings instance."""
 
     settings = Settings()
+    if settings.encryption_key is None:
+        digest = hashlib.sha256(settings.project_name.encode("utf-8")).digest()
+        settings.encryption_key = base64.urlsafe_b64encode(digest).decode("utf-8")
     return settings
 
 

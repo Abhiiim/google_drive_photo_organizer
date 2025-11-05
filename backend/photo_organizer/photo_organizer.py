@@ -163,13 +163,20 @@ class PhotoOrganizer:
             image_data: List of (photo_name, photo_id, face_encodings, face_metadata)
             progress_callback: Function to report progress
         """
+        total_count = len(images)
+
         for i, image in enumerate(images):
-            progress_callback(f"Processing image {i+1}/{len(images)}: {image['name']}", processed=i)
+            current_position = i + 1
+            progress_callback(
+                f"Processing image {current_position}/{total_count}: {image['name']}",
+                processed=self.processing_stats.get('photos_processed', i),
+                total_photos=total_count,
+            )
             logger.debug(
                 "organizer.process_image_start",
                 image_name=image["name"],
                 image_index=i,
-                total=len(images),
+                total=total_count,
             )
             
             temp_path = self.temp_dir / f"temp_{i}_{image['name']}"
@@ -187,7 +194,11 @@ class PhotoOrganizer:
                     # Use Path for temp_path to get filename
                     dest_path = no_faces_dir / temp_path.name
                     shutil.copy2(temp_path, dest_path)
-                    progress_callback(f"  ➡️ No faces found: moved to {dest_path}", processed=i+1)
+                    progress_callback(
+                        f"  ➡️ No faces found: moved to {dest_path}",
+                        processed=current_position,
+                        total_photos=total_count,
+                    )
                     logger.info(
                         "organizer.no_faces_detected",
                         image_name=image["name"],
@@ -248,7 +259,11 @@ class PhotoOrganizer:
                 
                 if len(persons_in_image) > 1:
                     self.processing_stats['photos_with_multiple_faces'] += 1
-                    progress_callback(f"  👥 Multiple faces found: {len(persons_in_image)} persons in {image['name']}", processed=i+1)
+                    progress_callback(
+                        f"  👥 Multiple faces found: {len(persons_in_image)} persons in {image['name']}",
+                        processed=current_position,
+                        total_photos=total_count,
+                    )
                     logger.info(
                         "organizer.multiple_faces_detected",
                         image_name=image["name"],
@@ -256,7 +271,11 @@ class PhotoOrganizer:
                     )
                 else:
                     self.processing_stats['photos_with_single_face'] += 1
-                    progress_callback(f"  👤 Single face found in {image['name']}", processed=i+1)
+                    progress_callback(
+                        f"  👤 Single face found in {image['name']}",
+                        processed=current_position,
+                        total_photos=total_count,
+                    )
                     logger.debug(
                         "organizer.single_face_detected",
                         image_name=image["name"],
@@ -269,10 +288,15 @@ class PhotoOrganizer:
                     error=str(e),
                 )
                 self.processing_stats['processing_errors'] += 1
-                progress_callback(f"  ❌ Error processing {image['name']}: {str(e)}", processed=i+1)
+                progress_callback(
+                    f"  ❌ Error processing {image['name']}: {str(e)}",
+                    processed=current_position,
+                    total_photos=total_count,
+                )
             finally:
                 if temp_path.exists():
                     temp_path.unlink()
+                self.processing_stats['photos_processed'] = current_position
 
         # Copy photos to person folders
         self._create_person_folders()

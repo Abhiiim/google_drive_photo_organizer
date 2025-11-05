@@ -19,3 +19,8 @@ ml-dtypes==0.3.2
 insightface==0.7.3
 opencv-python==4.8.1.78
 structlog==23.2.0
+celery==5.3.4
+redis==5.0.1
+flower==2.0.1
+alembic==1.12.1
+cryptography==41.0.5
